@@ -1,0 +1,838 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>美股 · 全市场Top10 + 单票 All-in-One（MA5/10/20/60）· 集成版</title>
+<style>
+  :root{font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif}
+  body{margin:20px;background:#0b1220;color:#e9eef7}
+  h1{margin:0 0 8px;font-size:22px}
+  .tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .tab{padding:8px 12px;border-radius:999px;border:1px solid #284071;cursor:pointer;background:#0e1730;color:#bcd0ff}
+  .tab.active{background:#2c4b86;color:#fff}
+  .pane{display:none}.pane.active{display:block}
+  .card{background:#11192e;border:1px solid #1d2a4a;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .pill{padding:6px 10px;border-radius:999px;background:#1c2b4e;display:inline-block;font-size:12px;color:#b9c8ea}
+  input,select,textarea{padding:8px 10px;border-radius:10px;border:1px solid #26365e;background:#0d1528;color:#e9eef7}
+  .muted{color:#9fb2d7;font-size:12px}
+  .good{color:#36d399}.bad{color:#f87171}.warn{color:#fbbf24}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{padding:8px 10px;border-bottom:1px solid #203058;font-size:12px;text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  progress{width:260px;height:10px}
+  .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .grid{display:grid;grid-template-columns: repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .btn{background:#375dfb;border:none;color:#fff;padding:9px 14px;border-radius:10px;cursor:pointer;font-weight:700}
+  .btn.secondary{background:#1f2b4b}
+  .btn[disabled]{opacity:.6;cursor:not-allowed}
+  #logbox{max-height:160px;overflow:auto;background:#0d1528;border:1px solid #27355e;border-radius:8px;padding:8px;font-family:ui-monospace,Consolas,monospace;color:#cfe1ff}
+  textarea{min-height:120px;font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .kpi{display:flex;gap:12px;flex-wrap:wrap}
+  .kpi>div{background:#0e1730;border:1px solid #22345f;border-radius:14px;padding:10px 12px}
+  .kpi .label{font-size:12px;color:#93a8d7}
+  .kpi .val{font-size:18px;font-weight:700;color:#fff}
+  .bar{height:10px;background:#1a2543;border-radius:6px;overflow:hidden}
+  .bar>span{display:block;height:100%;background:#3baefb;width:0%;transition:width .2s ease}
+  th.sortable{cursor:pointer}
+</style>
+</head>
+<body>
+<h1>📊 美股 · 全市场Top10 + 单票 All-in-One（MA5/10/20/60）· 集成版</h1>
+<div class="muted">数据源可选：Yahoo（代理，免梯子）、Stooq（CSV，免Key）、TwelveData（需免费Key）。扫描只用<b>最新收盘日</b>打分；单票支持在线取数/离线粘贴/手动输入。</div>
+
+<div class="tabs">
+  <div class="tab active" data-pane="scanner">全市场 Top10 + 单票分析</div>
+</div>
+
+<!-- ============ Pane: Scanner ============ -->
+<div id="scanner" class="pane active">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="pill">股票池（NASDAQ / NYSE / AMEX）</div>
+      <div class="row">
+        <button class="btn secondary" id="reload">重新拉取目录</button>
+        <button class="btn" id="scan">开始扫描</button>
+        <button class="btn" id="stop" disabled>停止</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:6px;gap:14px">
+      <div class="pill">筛选</div>
+      <label class="muted"><input type="checkbox" id="exNAS" checked> 纳斯达克</label>
+      <label class="muted"><input type="checkbox" id="exNYS" checked> 纽交所</label>
+      <label class="muted"><input type="checkbox" id="exASE" checked> 美交所（AMEX）</label>
+      <label class="muted"><input type="checkbox" id="noETF" checked> 排除ETF</label>
+      <label class="muted"><input type="checkbox" id="noWUR" checked> 排除Warrant/Unit/Right</label>
+      <label class="muted"><input type="checkbox" id="onlyCommon" checked> 仅普通股</label>
+    </div>
+
+    <div class="row" style="margin-top:6px;gap:14px">
+      <div class="pill">取数源</div>
+      <label class="muted">价格/量：
+        <select id="priceSource">
+          <option value="yahoo" selected>Yahoo（代理，免Key）</option>
+          <option value="stooq">Stooq（CSV，免Key）</option>
+          <option value="twelve">TwelveData（需Key）</option>
+        </select>
+      </label>
+      <label class="muted" id="twKeyWrap" style="display:none">TwelveData Key <input id="twKey" placeholder="twelvedata.com 免费获取"></label>
+      <label class="muted">市值：
+        <select id="mcapSource">
+          <option value="yahoo" selected>Yahoo Quote（免Key）</option>
+          <option value="none">不取（按技术分排序）</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row" style="margin-top:6px;gap:14px">
+      <div class="pill">性能</div>
+      <label class="muted">最多扫描 <input id="limit" type="number" step="1" value="80" style="width:90px"></label>
+      <label class="muted">并发 <input id="concur" type="number" step="1" value="6" style="width:70px"></label>
+      <label class="muted">超时(秒) <input id="timeout" type="number" step="1" value="6" style="width:80px"></label>
+      <label class="muted"><input type="checkbox" id="shuffle" checked> 随机抽样</label>
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <div class="pill">参数</div>
+      <label class="muted">RSI 下限 <input id="rsiLow" type="number" step="1" value="45" style="width:80px"></label>
+      <label class="muted">RSI 上限 <input id="rsiHigh" type="number" step="1" value="65" style="width:80px"></label>
+      <label class="muted">放量阈值 <input id="volX" type="number" step="0.1" value="1.5" style="width:90px"></label>
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <div class="pill">排序（切换即生效）</div>
+      <label class="muted"><input type="radio" name="sortby" value="score" checked> 按技术评分</label>
+      <label class="muted"><input type="radio" name="sortby" value="mcap_desc"> 按市值从大到小</label>
+      <label class="muted"><input type="radio" name="sortby" value="mcap_asc"> 按市值从小到大</label>
+      <label class="muted"><input type="radio" name="sortby" value="score_mcap"> 按 评分×市值</label>
+    </div>
+
+    <div class="row" style="margin-top:8px;gap:10px">
+      <div class="pill">进度</div>
+      <div class="row mono"><span id="done">0</span>/<span id="total">0</span></div>
+      <progress id="prog" max="100" value="0"></progress>
+      <span class="muted" id="log">—</span>
+    </div>
+    <div class="muted" id="stats" style="margin-top:6px">未开始</div>
+    <div id="logbox" style="margin-top:10px;display:none"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="align-items:center">
+      <div class="pill">Top</div>
+      <select id="topN">
+        <option value="10" selected>10</option>
+        <option value="20">20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+      <span>（最新收盘日）</span>
+    </div>
+    <div style="max-height:400px; overflow-y:auto;">
+      <table id="tbl">
+        <thead><tr>
+          <th>代码</th><th>交易所</th><th class="sortable" data-col="price">价格</th><th class="sortable" data-col="score">分数</th><th class="sortable" data-col="mcap">市值</th><th class="sortable" data-col="trend">趋势</th><th class="sortable" data-col="pull">回撤</th><th class="sortable" data-col="rsi">RSI</th><th class="sortable" data-col="volx">量能x</th><th>建议</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="muted">市值显示：≥1 亿显示“亿”，否则“百万”；排序按美元数值。</div>
+  </div>
+
+  <div class="card">
+    <div class="pill">单票分析</div>
+    <div class="tabs" style="margin-top:6px">
+      <div class="tab sub active" data-pane="online">在线取数</div>
+      <div class="tab sub" data-pane="offline">离线粘贴解析</div>
+      <div class="tab sub" data-pane="manual">手动输入</div>
+    </div>
+
+    <!-- 在线 -->
+    <div id="online" class="pane sub active" style="margin-top:12px">
+      <div class="grid">
+        <div><label class="muted">股票代码</label><input id="sym" placeholder="如 TSLA / AAPL / 0700.HK / 000001.SZ"></div>
+        <div><label class="muted">数据源</label>
+          <select id="source">
+            <option value="twelve">TwelveData（需Key）</option>
+            <option value="yahoo_proxy" selected>Yahoo（代理，免Key）</option>
+            <option value="stooq">Stooq（CSV，免Key；如 tsla.us）</option>
+          </select>
+        </div>
+        <div id="twkeywrap"><label class="muted">TwelveData API Key</label><input id="twkey" placeholder="在 twelvedata.com 免费获取"></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="fetch">获取并计算指标</button>
+        <span class="muted" id="fetchlog">—</span>
+      </div>
+    </div>
+
+    <!-- 离线 -->
+    <div id="offline" class="pane sub" style="margin-top:12px">
+      <div class="pill">粘贴历史K线（Date,Open,High,Low,Close,Volume）</div>
+      <div class="muted" style="margin-top:8px">示例：<code>2025-10-08, 27.10, 29.48, 26.11, 26.60, 7242200</code></div>
+      <textarea id="csv" placeholder="至少 7 行；建议 ≥60 行更稳"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="parse">解析并计算指标</button>
+        <button class="btn secondary" id="pasteDemo">一键粘贴示例（7行）</button>
+      </div>
+    </div>
+
+    <!-- 手动 -->
+    <div id="manual" class="pane sub" style="margin-top:12px">
+      <div class="row">
+        <div class="pill">参数与结果</div>
+        <div class="row" style="margin-left:auto">
+          <button class="btn secondary" id="save">保存</button>
+          <button class="btn" id="load">读取</button>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <div><label class="muted">股票代码/备注</label><input id="ticker" placeholder="AAPL / BILI"></div>
+        <div><label class="muted">最新价 Close</label><input id="close" type="number" step="0.01"></div>
+        <div><label class="muted">MA5</label><input id="ma5" type="number" step="0.01"></div>
+        <div><label class="muted">MA10</label><input id="ma10" type="number" step="0.01"></div>
+        <div><label class="muted">MA20</label><input id="ma20" type="number" step="0.01"></div>
+        <div><label class="muted">MA60</label><input id="ma60" type="number" step="0.01"></div>
+        <div><label class="muted">RSI(14)</label><input id="rsi" type="number" step="0.1"></div>
+        <div><label class="muted">当日成交量</label><input id="vol" type="number" step="1"></div>
+        <div><label class="muted">20日均量</label><input id="vol20" type="number" step="1"></div>
+        <div><label class="muted">ATR(14)</label><input id="atr" type="number" step="0.01"></div>
+      </div>
+    </div>
+
+    <div class="pill" style="margin-top:12px">阈值参数（可改）</div>
+    <div class="grid" style="margin-top:12px">
+      <div><label class="muted">RSI 下限</label><input id="rsiLow2" type="number" step="1" value="45"></div>
+      <div><label class="muted">RSI 上限</label><input id="rsiHigh2" type="number" step="1" value="65"></div>
+      <div><label class="muted">放量阈值（现量/20均量）</label><input id="volX2" type="number" step="0.1" value="1.5"></div>
+      <div><label class="muted">ATR 止损倍数</label><input id="slMult" type="number" step="0.1" value="1.5"></div>
+      <div><label class="muted">ATR 止盈倍数</label><input id="tpMult" type="number" step="0.1" value="2.0"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="calc">计算建议</button>
+      <span class="muted">总分 = 40%趋势 + 25%回撤质量 + 20%动能 + 15%量能；买入≥30，小仓/持有≥10，卖出≤-30</span>
+    </div>
+
+    <div class="kpi" style="margin-top:12px">
+      <div><div class="label">建议动作</div><div class="val" id="act">—</div></div>
+      <div><div class="label">持有周期（估）</div><div class="val" id="holdPeriod">—</div></div>
+      <div><div class="label">止损（≈）</div><div class="val" id="sl">—</div></div>
+      <div><div class="label">止盈（≈）</div><div class="val" id="tp">—</div></div>
+      <div><div class="label">总分</div><div class="val" id="score">—</div></div>
+    </div>
+    <div style="margin-top:12px">
+      <div class="bar"><span id="bar"></span></div>
+      <div class="muted" id="why" style="margin-top:8px">理由：—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ======= 小工具 =======
+const $ = id => document.getElementById(id);
+function showPane(id, parent = document) {
+  parent.querySelectorAll('.pane.sub').forEach(p => p.classList.remove('active'));
+  $(id).classList.add('active');
+}
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    if (t.classList.contains('sub')) {
+      showPane(t.dataset.pane, t.closest('.card'));
+    } else {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+      $(t.dataset.pane).classList.add('active');
+    }
+  });
+});
+
+function sma(arr, n) {
+  const out = new Float64Array(arr.length).fill(NaN);
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) {
+    sum += arr[i];
+    if (i >= n) sum -= arr[i - n];
+    if (i >= n - 1) out[i] = sum / n;
+  }
+  return out;
+}
+function rsi(closes, p = 14) {
+  const out = new Float64Array(closes.length).fill(NaN);
+  let pg = 0, pl = 0;
+  for (let i = 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1], g = Math.max(d, 0), l = Math.max(-d, 0);
+    if (i === p) {
+      for (let j = 1; j <= p; j++) {
+        const dd = closes[j] - closes[j - 1];
+        pg += Math.max(dd, 0);
+        pl += Math.max(-dd, 0);
+      }
+      pg /= p;
+      pl /= p;
+      const rs = pl === 0 ? 100 : pg / (pl || 1e-12);
+      out[i] = 100 - 100 / (1 + rs);
+    } else if (i > p) {
+      pg = (pg * (p - 1) + g) / p;
+      pl = (pl * (p - 1) + l) / p;
+      const rs = pl === 0 ? 100 : pg / (pl || 1e-12);
+      out[i] = 100 - 100 / (1 + rs);
+    }
+  }
+  return out;
+}
+function atr(highs, lows, closes, p = 14) {
+  const tr = new Float64Array(highs.length);
+  for (let i = 0; i < highs.length; i++) {
+    if (i === 0) {
+      tr[i] = highs[i] - lows[i];
+      continue;
+    }
+    const tr1 = highs[i] - lows[i], tr2 = Math.abs(highs[i] - closes[i - 1]), tr3 = Math.abs(lows[i] - closes[i - 1]);
+    tr[i] = Math.max(tr1, tr2, tr3);
+  }
+  return sma(tr, p);
+}
+function formatMcapUSD(m) {
+  if (!Number.isFinite(m)) return "—";
+  return m >= 1e8 ? (m / 1e8).toFixed(2).replace(/\.00$/, '') + " 亿" : Math.round(m / 1e6).toLocaleString() + " 百万";
+}
+
+// ======= Scanner：目录与取数 =======
+const NASDAQ_URL = "https://r.jina.ai/https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt";
+const OTHER_URL = "https://r.jina.ai/https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt";
+async function fetchText(url) {
+  const r = await fetch(url, { cache: 'force-cache' });
+  if (!r.ok) throw new Error("目录失败 " + r.status);
+  return await r.text();
+}
+function parsePipe(txt) {
+  const lines = txt.trim().split(/\r?\n/);
+  return lines
+    .filter(l => l && !/^File Creation Time/i.test(l) && !/^Symbol\|/i.test(l) && !/^ACT Symbol\|/i.test(l) && !/^\d+\s+records/i.test(l))
+    .map(l => l.split("|"));
+}
+let universe = [];
+function loadUniverse(rowsNas, rowsOth) {
+  universe = [
+    ...rowsNas.map(([sym, name, , test, , , etf]) => ({ symbol: sym, exch: "NASDAQ", name, etf: etf === "Y", test: test === "Y" })),
+    ...rowsOth.map(([sym, name, exch, , etf, , test]) => ({ symbol: sym, exch: exch === "N" ? "NYSE" : (exch === "A" ? "AMEX" : exch), name, etf: etf === "Y", test: test === "Y" }))
+  ].filter(x => x.symbol && x.symbol !== "Symbol" && x.symbol !== "ACT Symbol");
+}
+async function reload() {
+  $("log").textContent = "拉取目录…";
+  const [t1, t2] = await Promise.all([fetchText(NASDAQ_URL), fetchText(OTHER_URL)]);
+  loadUniverse(parsePipe(t1), parsePipe(t2));
+  $("stats").textContent = `已载入：${universe.length} 条（NASDAQ/NYSE/AMEX）`;
+  $("log").textContent = "目录加载完成。";
+}
+function shuffleInPlace(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Price/volume data sources
+async function fetchYahooChart(symbol, range = "6mo") {
+  const u = `https://r.jina.ai/https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
+  const r = await fetch(u, { cache: 'force-cache' });
+  if (!r.ok) throw new Error("Y!chart " + r.status);
+  const txt = await r.text();
+  let j;
+  try { j = JSON.parse(txt); } catch (e) {
+    const m = txt.match(/\{.*"chart".*\}/s);
+    if (!m) throw new Error("Y!parse");
+    j = JSON.parse(m[0]);
+  }
+  const res = j.chart?.result?.[0];
+  if (!res) throw new Error("Y!nores");
+  const ts = res.timestamp || [], q = res.indicators.quote?.[0] || {};
+  if (!ts.length) throw new Error("Y!notime");
+  return ts.map((t, i) => ({
+    date: new Date(t * 1000).toISOString().slice(0, 10),
+    open: +(q.open?.[i] ?? NaN), high: +(q.high?.[i] ?? NaN), low: +(q.low?.[i] ?? NaN),
+    close: +(q.close?.[i] ?? NaN), volume: +(q.volume?.[i] ?? 0)
+  })).filter(r => Number.isFinite(r.close));
+}
+async function fetchStooq(symbol) {
+  const s = symbol.toLowerCase().replace(/\s+/g, '').replace(/\//g, '-').replace(/\./g, '-') + ".us";
+  const u = `https://r.jina.ai/http://stooq.com/q/d/l/?s=${encodeURIComponent(s)}&i=d`;
+  const r = await fetch(u, { cache: 'force-cache' });
+  if (!r.ok) throw new Error("Stooq " + r.status);
+  const txt = await r.text();
+  const lines = txt.trim().split(/\r?\n/);
+  if (lines.length < 2) throw new Error("Stooq empty");
+  return lines.slice(1).map(line => {
+    const [date, open, high, low, close, volume] = line.split(',').map(x => x.trim());
+    return { date, open: +open, high: +high, low: +low, close: +close, volume: +volume };
+  }).filter(r => Number.isFinite(r.close));
+}
+async function fetchTwelve(symbol, key) {
+  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=260&order=ASC&apikey=${encodeURIComponent(key)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Twelve " + res.status);
+  const j = await res.json();
+  if (!j.values) throw new Error(j.message || "无数据");
+  return j.values.map(o => ({ date: o.datetime, open: +o.open, high: +o.high, low: +o.low, close: +o.close, volume: +(o.volume || 0) }));
+}
+async function fetchRowsBySource(symbol, src, key) {
+  if (src === 'yahoo') return fetchYahooChart(symbol, "6mo");
+  if (src === 'stooq') return fetchStooq(symbol);
+  if (src === 'twelve') return fetchTwelve(symbol, key);
+  throw new Error("未知源");
+}
+
+async function fetchMarketCapYahooBatch(symbols) {
+  const chunk = 50, out = new Map();
+  for (let i = 0; i < symbols.length; i += chunk) {
+    const part = symbols.slice(i, i + chunk).join(",");
+    try {
+      const u = `https://r.jina.ai/https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(part)}`;
+      const r = await fetch(u);
+      if (!r.ok) continue;
+      const j = await r.json();
+      (j?.quoteResponse?.result || []).forEach(o => {
+        if (o?.symbol) out.set(o.symbol, (typeof o.marketCap === "number") ? o.marketCap : NaN);
+      });
+    } catch (_) {}
+  }
+  return out;
+}
+
+function calcLatest(rows, rsiLow, rsiHigh, volX) {
+  if (rows.length < 7) throw new Error("历史不足7行");
+  const closes = new Float64Array(rows.map(r => r.close));
+  const highs = new Float64Array(rows.map(r => r.high));
+  const lows = new Float64Array(rows.map(r => r.low));
+  const vols = new Float64Array(rows.map(r => r.volume));
+  const ma5 = sma(closes, 5), ma10 = sma(closes, 10), ma20 = sma(closes, 20), ma60 = sma(closes, 60);
+  const rsi14 = rsi(closes, 14), vol20 = sma(vols, 20), i = rows.length - 1;
+  const close = closes[i], rsiVal = rsi14[i], v = vols[i], v20 = vol20[i];
+  const trend = (close > ma5[i] && ma5[i] > ma10[i] && ma10[i] > ma20[i] && ma20[i] > ma60[i]) ? 1 : (close < ma60[i] ? -1 : 0);
+  const momo = (rsiVal >= rsiLow && rsiVal <= rsiHigh) ? 1 : ((rsiVal < rsiLow - 5 || rsiVal > 75) ? -1 : 0);
+  const dist = (close - ma5[i]) / (close || 1);
+  const pull = (0 <= dist && dist <= 0.02) ? 1 : (dist < -0.01 ? -1 : 0);
+  const volok = (v / (v20 || 1) >= volX) ? 1 : 0;
+  const score = 40 * trend + 25 * pull + 20 * momo + 15 * volok;
+  let act = "观望";
+  if (score >= 30) act = "买入";
+  else if (score >= 10) act = "小仓/持有";
+  else if (score <= -30) act = "卖出/止损";
+  return { price: close, rsi: rsiVal, volx: v / (v20 || 1), score, trend, pull, act };
+}
+
+let currentSortCol = 'score';
+let currentSortDir = -1; // -1 desc, 1 asc
+
+function getSorter(col, dir) {
+  const getVal = x => Number.isFinite(x[col]) ? x[col] : 0;
+  if (col === 'score_mcap') {
+    return (a, b) => dir * ((getVal(a, 'score') * getVal(a, 'mcap')) - (getVal(b, 'score') * getVal(b, 'mcap')));
+  } else {
+    return (a, b) => dir * (getVal(a, col) - getVal(b, col));
+  }
+}
+
+function setArrow() {
+  document.querySelectorAll('th.sortable').forEach(th => {
+    if (!th.dataset.orig) th.dataset.orig = th.textContent;
+    th.textContent = th.dataset.orig;
+  });
+  const th = document.querySelector(`th[data-col="${currentSortCol}"]`);
+  if (th) {
+    th.textContent = th.dataset.orig + (currentSortDir === -1 ? ' ↓' : ' ↑');
+  }
+}
+
+function renderTop(list) {
+  const sorter = getSorter(currentSortCol, currentSortDir);
+  const sorted = list.slice().sort(sorter);
+  const selectedN = parseInt($('topN').value || 10, 10);
+  const n = Math.min(selectedN, sorted.length);
+  const tbody = document.querySelector("#tbl tbody");
+  tbody.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  sorted.slice(0, n).forEach(x => {
+    const trendTxt = x.trend > 0 ? "多头" : (x.trend < 0 ? "走弱" : "一般");
+    const pullTxt = x.pull > 0 ? "良好" : (x.pull < 0 ? "较差" : "一般");
+    const actClass = x.act === "买入" ? "good" : (x.act === "卖出/止损" ? "bad" : "warn");
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${x.symbol}</td>
+      <td>${x.exch}</td>
+      <td>${Number.isFinite(x.price) ? x.price.toFixed(2) : "—"}</td>
+      <td><b>${x.score > 0 ? '+' : ''}${Math.round(x.score)}</b></td>
+      <td>${formatMcapUSD(x.mcap)}</td>
+      <td>${trendTxt}</td>
+      <td>${pullTxt}</td>
+      <td>${Number.isFinite(x.rsi) ? x.rsi.toFixed(1) : "—"}</td>
+      <td>${Number.isFinite(x.volx) ? x.volx.toFixed(2) : "—"}</td>
+      <td class="${actClass}">${x.act}</td>`;
+    fragment.appendChild(tr);
+  });
+  tbody.appendChild(fragment);
+  setArrow();
+}
+
+// Resort on radio change
+document.querySelectorAll('input[name="sortby"]').forEach(r => r.addEventListener('change', () => {
+  const mode = r.value;
+  if (mode === 'score') { currentSortCol = 'score'; currentSortDir = -1; }
+  else if (mode === 'mcap_desc') { currentSortCol = 'mcap'; currentSortDir = -1; }
+  else if (mode === 'mcap_asc') { currentSortCol = 'mcap'; currentSortDir = 1; }
+  else if (mode === 'score_mcap') { currentSortCol = 'score_mcap'; currentSortDir = -1; }
+  if (lastResults.length) renderTop(lastResults);
+}));
+
+// Top N change
+$('topN').addEventListener('change', () => {
+  if (lastResults.length) renderTop(lastResults);
+});
+
+// Column sort
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (col === currentSortCol) {
+      currentSortDir = -currentSortDir;
+    } else {
+      currentSortCol = col;
+      currentSortDir = -1;
+    }
+    renderTop(lastResults);
+  });
+});
+
+// Toggle TwelveData key box
+$('priceSource').addEventListener('change', () => {
+  $('twKeyWrap').style.display = $('priceSource').value === 'twelve' ? 'inline-flex' : 'none';
+});
+
+// Scanner main
+let stopFlag = false;
+$('reload').onclick = reload;
+$('stop').onclick = () => { stopFlag = true; };
+$('scan').onclick = async () => {
+  stopFlag = false;
+  $("logbox").innerHTML = '';
+  $("logbox").style.display = 'none';
+  const rsiLow = +($('rsiLow').value || 45), rsiHigh = +($('rsiHigh').value || 65), volX = +($('volX').value || 1.5);
+  const mode = (document.querySelector('input[name="sortby"]:checked') || {}).value || 'score';
+  if (mode === 'score') { currentSortCol = 'score'; currentSortDir = -1; }
+  else if (mode === 'mcap_desc') { currentSortCol = 'mcap'; currentSortDir = -1; }
+  else if (mode === 'mcap_asc') { currentSortCol = 'mcap'; currentSortDir = 1; }
+  else if (mode === 'score_mcap') { currentSortCol = 'score_mcap'; currentSortDir = -1; }
+  const priceSrc = $('priceSource').value, mcapSrc = $('mcapSource').value, twKey = $('twKey').value.trim();
+  if (priceSrc === 'twelve' && !twKey) { alert('请输入 TwelveData Key'); return; }
+  if (!universe.length) await reload();
+  const pool = universe.filter(it => {
+    if ($('noETF').checked && it.etf) return false;
+    if (it.test) return false;
+    if (!$('exNAS').checked && it.exch === 'NASDAQ') return false;
+    if (!$('exNYS').checked && it.exch === 'NYSE') return false;
+    if (!$('exASE').checked && (it.exch === 'AMEX' || it.exch === 'ASE')) return false;
+    const nm = (it.name || '').toUpperCase();
+    if ($('noWUR').checked && (nm.includes('WARRANT') || nm.includes('UNIT') || nm.includes('RIGHT'))) return false;
+    if ($('onlyCommon').checked && (nm.includes('PREFERRED') || nm.includes('DEPOSITARY') || nm.includes('ETN') || nm.includes('NOTE'))) return false;
+    return true;
+  });
+  const list = ($('shuffle').checked ? shuffleInPlace([...pool]) : pool).slice(0, Math.max(10, parseInt($('limit').value || "80", 10)));
+  $('total').textContent = String(list.length);
+  $('done').textContent = '0';
+  $('prog').max = list.length;
+  $('prog').value = 0;
+  $('log').textContent = '开始抓取…';
+  $('scan').disabled = true;
+  $('stop').disabled = false;
+
+  let preCapMap = new Map();
+  if (mcapSrc === 'yahoo' && (mode === 'mcap_desc' || mode === 'mcap_asc' || mode === 'score_mcap')) {
+    $('log').textContent = '批量获取市值…';
+    preCapMap = await fetchMarketCapYahooBatch(list.map(x => x.symbol));
+  }
+  const results = [];
+  const concur = Math.max(1, parseInt($('concur').value || "6", 10));
+  const timeoutMs = Math.max(3, +($('timeout').value || 6)) * 1000;
+
+  async function processBatch(start, end) {
+    const tasks = [];
+    for (let i = start; i < end && i < list.length; i++) {
+      if (stopFlag) return;
+      const it = list[i];
+      tasks.push((async () => {
+        try {
+          $('log').textContent = `抓取 ${it.symbol} (${i + 1}/${list.length})`;
+          const rows = await Promise.race([fetchRowsBySource(it.symbol, priceSrc, twKey), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs))]);
+          const calc = calcLatest(rows, rsiLow, rsiHigh, volX);
+          const mc = mcapSrc === 'yahoo' ? preCapMap.get(it.symbol) || NaN : NaN;
+          results.push({ symbol: it.symbol, exch: it.exch, mcap: mc, ...calc });
+        } catch (e) {
+          const box = $('logbox');
+          box.style.display = 'block';
+          box.innerHTML += `<div>${it.symbol}: 失败 (${e.message || e})</div>`;
+        } finally {
+          const done = parseInt($('done').textContent) + 1;
+          $('done').textContent = String(done);
+          $('prog').value = done;
+        }
+      })());
+    }
+    await Promise.all(tasks);
+  }
+
+  const batchSize = Math.ceil(list.length / concur);
+  for (let i = 0; i < list.length && !stopFlag; i += batchSize) {
+    await processBatch(i, i + batchSize);
+  }
+
+  if (!stopFlag) {
+    lastResults = results;
+    renderTop(lastResults);
+    $('log').textContent = '完成。';
+  } else {
+    $('log').textContent = '已停止。';
+  }
+  $('scan').disabled = false;
+  $('stop').disabled = true;
+};
+
+// ======= 单票分析 =======
+function setVal(id, v) { const el = $(id); el.value = Number.isFinite(v) ? v.toFixed(4) : ""; }
+function getNum(id) { return parseFloat(($(`${id}`).value || "").trim()); }
+function setTxt(id, s) { $(id).textContent = s; }
+function logfetch(s) { $('fetchlog').textContent = s; }
+
+$('source').addEventListener('change', () => {
+  $('twkeywrap').style.display = $('source').value === 'twelve' ? 'block' : 'none';
+});
+
+async function fetchYahooProxy(symbol) {
+  logfetch("请求 Yahoo（代理）…");
+  const url = `https://r.jina.ai/https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1y&interval=1d`;
+  const res = await fetch(url, { cache: 'force-cache' });
+  if (!res.ok) throw new Error("网络错误：" + res.status);
+  const text = await res.text();
+  let j;
+  try { j = JSON.parse(text); } catch (e) {
+    const m = text.match(/\{.*"chart".*\}/s);
+    if (!m) throw new Error("解析失败：返回不是JSON");
+    j = JSON.parse(m[0]);
+  }
+  const r = j.chart?.result?.[0];
+  if (!r) throw new Error("Yahoo 无返回结果");
+  const ts = r.timestamp || [], q = r.indicators.quote?.[0] || {};
+  if (!ts.length) throw new Error("Yahoo 无时间序列");
+  const rows = ts.map((t, i) => ({
+    date: new Date(t * 1000).toISOString().slice(0, 10),
+    open: +(q.open?.[i] ?? NaN), high: +(q.high?.[i] ?? NaN), low: +(q.low?.[i] ?? NaN),
+    close: +(q.close?.[i] ?? NaN), volume: +(q.volume?.[i] ?? 0)
+  })).filter(r => Number.isFinite(r.close));
+  if (rows.length < 7) throw new Error("Yahoo 数据不足 7 行");
+  return rows;
+}
+async function fetchStooqSingle(symbol) { return fetchStooq(symbol); }
+async function fetchTwelveSingle(symbol, key) { return fetchTwelve(symbol, key); }
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/).filter(x => x.trim());
+  const out = lines.map(raw => {
+    let p = raw.split(',');
+    if (p.length < 5) p = raw.trim().split(/\s+/);
+    if (p.length < 5) return null;
+    const [d, o, h, l, c, v] = p.map(x => x.trim());
+    const num = t => parseFloat(String(t || "").replace(/,/g, ''));
+    return { date: d, open: num(o), high: num(h), low: num(l), close: num(c), volume: num(v || "0") };
+  }).filter(x => x);
+  return out;
+}
+function fillFromRows(rows) {
+  if (rows.length < 7) throw new Error("返回数据不足 7 行");
+  const closes = new Float64Array(rows.map(r => r.close));
+  const highs = new Float64Array(rows.map(r => r.high));
+  const lows = new Float64Array(rows.map(r => r.low));
+  const vols = new Float64Array(rows.map(r => r.volume));
+  const ma5 = sma(closes, 5), ma10 = sma(closes, 10), ma20 = sma(closes, 20), ma60 = sma(closes, 60);
+  const rsi14 = rsi(closes, 14), atr14 = atr(highs, lows, closes, 14), vol20 = sma(vols, 20);
+  const i = rows.length - 1;
+  setVal('close', closes[i]);
+  setVal('ma5', ma5[i]);
+  setVal('ma10', ma10[i]);
+  setVal('ma20', ma20[i]);
+  setVal('ma60', ma60[i]);
+  setVal('rsi', rsi14[i]);
+  setVal('atr', atr14[i]);
+  setVal('vol', vols[i]);
+  setVal('vol20', vol20[i]);
+}
+$('fetch').onclick = async () => {
+  try {
+    const sym = $('sym').value.trim();
+    const src = $('source').value;
+    if (!sym) { alert("请输入股票代码"); return; }
+    $('ticker').value = sym;
+    let rows;
+    if (src === 'twelve') {
+      const key = $('twkey').value.trim();
+      if (!key) { alert("请输入 TwelveData Key"); return; }
+      rows = await fetchTwelveSingle(sym, key);
+    } else if (src === 'yahoo_proxy') {
+      rows = await fetchYahooProxy(sym);
+    } else {
+      rows = await fetchStooqSingle(sym);
+    }
+    rows.sort((a, b) => new Date(a.date) - new Date(b.date));
+    logfetch(`获取成功：${rows.length} 行。正在计算…`);
+    fillFromRows(rows);
+    logfetch("完成：指标已自动填入（MA5/10/20/60、RSI、ATR、量能）。");
+    showPane('manual', $('scanner'));
+  } catch (e) {
+    logfetch("❌ " + (e.message || e));
+    alert("获取失败：" + (e.message || e));
+  }
+};
+$('parse').onclick = () => {
+  const rows = parseCSV($('csv').value);
+  if (rows.length < 7) { alert("至少需要 7 行数据"); return; }
+  fillFromRows(rows);
+  logfetch(`离线解析成功：${rows.length} 行。指标已填入。`);
+  showPane('manual', $('scanner'));
+};
+$('pasteDemo').onclick = () => {
+  const demo = [
+    "2025-10-10, 458.40, 471.20, 452.10, 466.80, 102340000",
+    "2025-10-09, 452.30, 463.50, 448.20, 458.10, 97320000",
+    "2025-10-08, 446.80, 454.90, 440.60, 447.70, 96850000",
+    "2025-10-07, 440.50, 451.30, 432.40, 442.90, 93410000",
+    "2025-10-06, 448.90, 455.20, 438.80, 446.10, 88940000",
+    "2025-10-03, 439.60, 448.40, 432.00, 439.80, 91560000",
+    "2025-10-02, 436.20, 444.70, 429.50, 436.90, 90130000"
+  ].join("\n");
+  const ta = $('csv');
+  ta.value = demo;
+  ta.focus();
+  alert("已填入 7 行示例，可点“解析并计算指标”。（示例数据仅用于演示）");
+};
+$('save').onclick = () => {
+  const keys = ["ticker", "close", "ma5", "ma10", "ma20", "ma60", "rsi", "vol", "vol20", "atr", "rsiLow2", "rsiHigh2", "volX2", "slMult", "tpMult"];
+  const data = {};
+  keys.forEach(k => data[k] = $(k).value);
+  localStorage.setItem("stock_logic_ma5_10_20_60_allin1", JSON.stringify(data));
+  alert("已保存到本机浏览器");
+};
+$('load').onclick = () => {
+  const raw = localStorage.getItem("stock_logic_ma5_10_20_60_allin1");
+  if (!raw) { alert("没有保存的数据"); return; }
+  const data = JSON.parse(raw);
+  Object.keys(data).forEach(k => { const el = $(k); if (el) el.value = data[k]; });
+};
+$('calc').onclick = () => {
+  const close = getNum('close'), ma5 = getNum('ma5'), ma10 = getNum('ma10'), ma20 = getNum('ma20'), ma60 = getNum('ma60');
+  const rsi = getNum('rsi'), vol = getNum('vol'), vol20 = getNum('vol20'), atrv = getNum('atr');
+  const rsiLow = getNum('rsiLow2'), rsiHigh = getNum('rsiHigh2'), volX = getNum('volX2'), slMult = getNum('slMult'), tpMult = getNum('tpMult');
+  if (![close, ma5, ma10, ma20, ma60, rsi, vol, vol20, atrv].every(Number.isFinite)) {
+    alert("请先获取/粘贴数据或补齐关键值");
+    return;
+  }
+  const trend = (close > ma5 && ma5 > ma10 && ma10 > ma20 && ma20 > ma60) ? 1 : (close < ma60 ? -1 : 0);
+  const momo = (rsi >= rsiLow && rsi <= rsiHigh) ? 1 : ((rsi < rsiLow - 5 || rsi > 75) ? -1 : 0);
+  const dist = (close - ma5) / (close || 1);
+  const pull = (0 <= dist && dist <= 0.02) ? 1 : (dist < -0.01 ? -1 : 0);
+  const volx = vol / (vol20 || 1);
+  const volok = (volx >= volX) ? 1 : 0;
+  const score = 40 * trend + 25 * pull + 20 * momo + 15 * volok;
+  const sl = close - slMult * atrv;
+  const tp = Math.max(close * 1.15, close + tpMult * atrv);
+  let act = "观望";
+  if (score >= 30) act = "买入";
+  else if (score >= 10) act = "小仓/持有";
+  else if (score <= -30) act = "卖出/止损";
+  let holdPeriod = "—";
+  let holdReason = "";
+  if (act === "买入") {
+    let days = 5 + Math.floor(Math.sqrt(score - 30) * 3); // 非线性基础：分数越高增长越快
+    if (trend === 1) { days += Math.floor(Math.random() * 3) + 4; holdReason += "趋势良好(+4~6天)"; } 
+    else if (trend === 0) { days += Math.floor(Math.random() * 2) + 1; holdReason += "趋势一般(+1~2天)"; } 
+    else { days -= Math.floor(Math.random() * 3) + 2; holdReason += "趋势走弱(-2~4天)"; }
+    if (pull === 1) { days += Math.floor(Math.random() * 2) + 2; holdReason += ", 回撤良好(+2~3天)"; }
+    else if (pull === -1) { days -= Math.floor(Math.random() * 2) + 1; holdReason += ", 回撤较差(-1~2天)"; }
+    if (rsi >= rsiLow && rsi <= rsiHigh) {
+      const rsiPos = (rsi - rsiLow) / (rsiHigh - rsiLow); // 0~1位置
+      const rsiAdd = rsiPos < 0.5 ? 2 : 4; // 偏低短期，偏高中期
+      days += rsiAdd; holdReason += `, RSI甜区(${rsiPos < 0.5 ? '短期' : '中期'}+${rsiAdd}天)`;
+    }
+    if (rsi >= 70) { days -= 3; holdReason += ", RSI过热(-3天)"; }
+    if (volok) { 
+      const volExtra = Math.min(6, Math.floor((volx - volX) * 2)); // 超阈值越多加越多
+      days += volExtra; holdReason += `, 放量超阈(+${volExtra}天)`;
+    }
+    days = Math.min(35, Math.max(5, days));
+    holdPeriod = `${days} 个交易日`;
+  } else if (act === "小仓/持有") {
+    let days = 3 + Math.floor(Math.sqrt(score - 10) * 2); // 非线性基础
+    if (trend === 1) { days += Math.floor(Math.random() * 3) + 2; holdReason += "趋势良好(+2~4天)"; }
+    else if (trend === 0) { days += 1; holdReason += "趋势一般(+1天)"; }
+    else { days -= 2; holdReason += "趋势走弱(-2天)"; }
+    if (pull === 1) { days += 1; holdReason += ", 回撤良好(+1天)"; }
+    else if (pull === -1) { days -= 1; holdReason += ", 回撤较差(-1天)"; }
+    if (rsi >= rsiLow && rsi <= rsiHigh) { days += 2; holdReason += ", RSI甜区(+2天)"; }
+    if (rsi >= 70) { days -= 1; holdReason += ", RSI过热(-1天)"; }
+    if (volok) { days += Math.min(3, Math.floor((volx - volX) * 1)); holdReason += `, 放量超阈(+${Math.min(3, Math.floor((volx - volX) * 1))}天)`; }
+    days = Math.min(15, Math.max(3, days));
+    holdPeriod = `${days} 个交易日`;
+  }
+  setTxt('act', act);
+  setTxt('holdPeriod', holdPeriod);
+  setTxt('sl', Number.isFinite(sl) ? sl.toFixed(2) : "—");
+  setTxt('tp', Number.isFinite(tp) ? tp.toFixed(2) : "—");
+  setTxt('score', (score > 0 ? '+' : '') + score.toFixed(0));
+  $('bar').style.width = Math.max(0, Math.min(100, (score + 100) / 2)) + '%';
+  setTxt('why', `理由：趋势${trend > 0 ? '良好' : (trend < 0 ? '走弱' : '一般')}；回撤${pull > 0 ? '良好' : (pull < 0 ? '较差' : '一般')}；动能RSI ${rsi.toFixed(1)}；量能倍数 ${volx.toFixed(2)}${holdReason ? ` (周期调整: ${holdReason})` : ''}。`);
+};
+
+// 初始化
+reload().catch(e => $('log').textContent = '目录加载失败：' + (e.message || e));
+</script>
+</body>
+</html>
