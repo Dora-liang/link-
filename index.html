@@ -834,5 +834,64 @@ $('calc').onclick = () => {
 // 初始化
 reload().catch(e => $('log').textContent = '目录加载失败：' + (e.message || e));
 </script>
+<!-- Airwallex 折叠浮窗收款模块（默认收起，点开即展开）-->
+<div id="awxSupportFloat" 
+     style="position:fixed;bottom:24px;right:24px;z-index:9999;cursor:pointer;">
+  <!-- 收起时的圆形小按钮 -->
+  <div id="awxBtn" 
+       style="width:56px;height:56px;background:#00d4aa;border-radius:50%;box-shadow:0 6px 20px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:28px;color:white;">
+    ☕
+  </div>
+
+  <!-- 展开后的卡片（默认隐藏）-->
+  <div id="awxPanel" 
+       style="position:absolute;bottom:70px;right:0;width:260px;background:#11192e;border:1px solid #1d2a4a;border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,0.6);display:none;transform-origin:bottom right;animation:awxFadeIn 0.3s ease;">
+    <div class="pill" style="margin-bottom:10px;font-size:13px;">喜欢这个工具？请作者喝杯咖啡～</div>
+    
+    <img src="https://您的Airwallex二维码图片链接.png"
+         width="160"
+         style="border-radius:12px;margin:8px 0;box-shadow:0 4px 12px rgba(0,0,0,0.4);"
+         alt="Airwallex 收款二维码">
+    
+    <a href="https://pay.airwallex.com/您的PaymentLinkID"
+       target="_blank"
+       class="btn"
+       style="display:block;background:#00d4aa;color:white;margin:10px 0;padding:10px;border-radius:10px;text-decoration:none;">
+      ☕ 点击支付（任意金额）
+    </a>
+    
+    <div class="muted" style="font-size:11px;line-height:1.4;">
+      支持Wechat/Alipay/Mastercard/Visa等/<br>感谢每一位支持者～
+    </div>
+    
+    <!-- 小关闭按钮 -->
+    <div style="position:absolute;top:8px;right:10px;color:#666;font-size:20px;cursor:pointer;" 
+         onclick="document.getElementById('awxPanel').style.display='none'">
+      ×
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes awxFadeIn {
+  from {opacity:0;transform:scale(0.8);}
+  to {opacity:1;transform:scale(1);}
+}
+</style>
+
+<script>
+// 点击咖啡按钮展开/收起
+document.getElementById('awxBtn').addEventListener('click', function(e){
+  e.stopPropagation();
+  const panel = document.getElementById('awxPanel');
+  panel.style.display = (panel.style.display==='block') ? 'none' : 'block';
+});
+// 点击页面其他地方自动收起（可选）
+document.addEventListener('click', function(e){
+  if(!document.getElementById('awxSupportFloat').contains(e.target)){
+    document.getElementById('awxPanel').style.display='none';
+  }
+});
+</script>
 </body>
 </html>
